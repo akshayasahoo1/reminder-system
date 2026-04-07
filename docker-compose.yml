@@ -1,0 +1,136 @@
+version: '3.9'
+
+services:
+
+  # ─────────────────────────────────────────
+  # Node.js App
+  # ─────────────────────────────────────────
+  app:
+    build: .
+    container_name: reminder_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/reminder_db?schema=public
+      JWT_SECRET: your_super_secret_jwt_key_change_in_production
+      JWT_EXPIRES_IN: 7d
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_QUEUE: reminder_queue
+      BCRYPT_SALT_ROUNDS: 12
+      REDIS_TTL: 3600
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - reminder_network
+
+  # ─────────────────────────────────────────
+  # Worker (separate process)
+  # ─────────────────────────────────────────
+  worker:
+    build: .
+    container_name: reminder_worker
+    restart: unless-stopped
+    command: node src/workers/reminderWorker.js
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/reminder_db?schema=public
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_QUEUE: reminder_queue
+      REDIS_URL: redis://redis:6379
+      REDIS_TTL: 3600
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - reminder_network
+
+  # ─────────────────────────────────────────
+  # PostgreSQL
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: reminder_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: reminder_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reminder_network
+
+  # ─────────────────────────────────────────
+  # Redis
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: reminder_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reminder_network
+
+  # ─────────────────────────────────────────
+  # RabbitMQ
+  # ─────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: reminder_rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reminder_network
+
+# ─────────────────────────────────────────
+# Volumes — persist data between restarts
+# ─────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+# ─────────────────────────────────────────
+# Network
+# ─────────────────────────────────────────
+networks:
+  reminder_network:
+    driver: bridge

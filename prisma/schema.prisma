@@ -1,0 +1,47 @@
+// ─────────────────────────────────────────
+// Prisma Schema
+// Distributed Event Reminder System
+// ─────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String
+  createdAt DateTime   @default(now()) @map("created_at")
+  reminders Reminder[]
+
+  @@map("users")
+}
+
+model Reminder {
+  id            String         @id @default(uuid())
+  userId        String         @map("user_id")
+  title         String
+  description   String?
+  scheduledTime DateTime       @map("scheduled_time")
+  status        ReminderStatus @default(PENDING)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledTime])
+  @@map("reminders")
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+}
